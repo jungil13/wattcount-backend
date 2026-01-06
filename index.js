@@ -50,27 +50,43 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Handle OPTIONS requests explicitly (CORS preflight)
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.sendStatus(200);
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Debug middleware - log all requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} (original: ${req.originalUrl})`);
+  next();
+});
+
 // Middleware to handle Vercel routing
-// In Vercel, /api/* requests are routed here, but we need to strip /api prefix
-// For local dev, routes are mounted at /api/* directly
-const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
-if (isVercel) {
-  app.use((req, res, next) => {
-    // Log for debugging
-    console.log(`[Vercel] Original path: ${req.path}, URL: ${req.url}`);
-    
-    // Strip /api prefix in Vercel environment if present
-    if (req.path.startsWith('/api/')) {
-      const newPath = req.path.replace('/api', '') || '/';
-      req.url = newPath;
-      console.log(`[Vercel] Rewritten path: ${newPath}`);
-    }
-    next();
-  });
-}
+// When Vercel routes /api/* to this function, the path includes /api
+// We need to strip it so routes can match correctly
+app.use((req, res, next) => {
+  // Log for debugging
+  const originalPath = req.path;
+  const originalUrl = req.url;
+  
+  // Strip /api prefix if present (Vercel case)
+  if (req.path.startsWith('/api/')) {
+    const newPath = req.path.replace(/^\/api/, '') || '/';
+    req.url = newPath;
+    // Also update the path property
+    req.path = newPath;
+    console.log(`[Routing] Rewritten: ${originalPath} -> ${newPath}`);
+  }
+  
+  next();
+});
 
 // Routes
 // Mount routes to handle both /api/* (local) and /* (Vercel after path rewrite)
@@ -97,16 +113,16 @@ if (process.env.NODE_ENV !== 'production') {
   console.log('🔧 Development routes enabled at /api/dev');
 }
 
-// Health check
+// Health check (mounted early for easy testing)
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'WattCount API is running' });
+  res.json({ status: 'ok', message: 'WattCount API is running', path: req.path });
 });
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'WattCount API is running' });
+  res.json({ status: 'ok', message: 'WattCount API is running', path: req.path });
 });
 
 // 404 handler for unmatched routes
-app.use((req, res) => {
+app.use((req, res) => { 
   console.log(`[404] Method: ${req.method}, Path: ${req.path}, Original URL: ${req.originalUrl}`);
   res.status(404).json({ error: 'Route not found', path: req.path, method: req.method });
 });
@@ -133,8 +149,6 @@ if (process.env.NODE_ENV !== 'production' || process.env.VERCEL_ENV === 'develop
 }
 
 // Export for Vercel serverless function
-// Vercel will call this handler with (req, res) when deployed
+// Vercel can use Express apps directly as the default export
+// The app will handle all requests routed to this function
 export default app;
-
-// Also export as a named export for Vercel compatibility
-export const handler = app;
