@@ -53,7 +53,28 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Middleware to handle Vercel routing
+// In Vercel, /api/* requests are routed here, but we need to strip /api prefix
+// For local dev, routes are mounted at /api/* directly
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
+if (isVercel) {
+  app.use((req, res, next) => {
+    // Log for debugging
+    console.log(`[Vercel] Original path: ${req.path}, URL: ${req.url}`);
+    
+    // Strip /api prefix in Vercel environment if present
+    if (req.path.startsWith('/api/')) {
+      const newPath = req.path.replace('/api', '') || '/';
+      req.url = newPath;
+      console.log(`[Vercel] Rewritten path: ${newPath}`);
+    }
+    next();
+  });
+}
+
 // Routes
+// Mount routes to handle both /api/* (local) and /* (Vercel after path rewrite)
+// This ensures compatibility in both environments
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/consumption', consumptionRoutes);
@@ -61,15 +82,39 @@ app.use('/api/bills', billRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/rates', rateRoutes);
 
-// Development routes (only in development mode)
+// Also mount without /api prefix for Vercel (after middleware strips /api)
+app.use('/auth', authRoutes);
+app.use('/users', userRoutes);
+app.use('/consumption', consumptionRoutes);
+app.use('/bills', billRoutes);
+app.use('/payments', paymentRoutes);
+app.use('/rates', rateRoutes);
+
+// Development routes
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev', devRoutes);
+  app.use('/dev', devRoutes);
   console.log('🔧 Development routes enabled at /api/dev');
 }
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'WattCount API is running' });
+});
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'WattCount API is running' });
+});
+
+// 404 handler for unmatched routes
+app.use((req, res) => {
+  console.log(`[404] Method: ${req.method}, Path: ${req.path}, Original URL: ${req.originalUrl}`);
+  res.status(404).json({ error: 'Route not found', path: req.path, method: req.method });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
 // Initialize database on startup (for environments that need it on startup, like local)
@@ -87,5 +132,9 @@ if (process.env.NODE_ENV !== 'production' || process.env.VERCEL_ENV === 'develop
   });
 }
 
+// Export for Vercel serverless function
+// Vercel will call this handler with (req, res) when deployed
 export default app;
 
+// Also export as a named export for Vercel compatibility
+export const handler = app;
