@@ -72,21 +72,14 @@ app.use((req, res, next) => {
 // When Vercel routes /api/* to this function, the path includes /api
 // We need to strip it so routes can match correctly
 app.use((req, res, next) => {
-  // Log for debugging
-  const originalPath = req.path;
-  const originalUrl = req.url;
-  
-  // Strip /api prefix if present (Vercel case)
-  if (req.path.startsWith('/api/')) {
-    const newPath = req.path.replace(/^\/api/, '') || '/';
-    req.url = newPath;
-    // Also update the path property
-    req.path = newPath;
-    console.log(`[Routing] Rewritten: ${originalPath} -> ${newPath}`);
+  if (req.url.startsWith('/api/')) {
+    const newUrl = req.url.replace(/^\/api/, '') || '/';
+    console.log(`[Routing] Rewritten URL: ${req.url} -> ${newUrl}`);
+    req.url = newUrl; // ✅ SAFE
   }
-  
   next();
 });
+
 
 // Routes
 // Mount routes to handle both /api/* (local) and /* (Vercel after path rewrite)
